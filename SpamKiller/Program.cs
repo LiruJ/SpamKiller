@@ -27,6 +27,7 @@ namespace SpamKiller
             // Log the bot in.
             await bot.LoginAndStartAsync();
 
+            // Wait forever
             await Task.Delay(-1);
         }
     }

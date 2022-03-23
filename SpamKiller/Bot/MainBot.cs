@@ -3,8 +3,10 @@ using Discord.Commands;
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
+using SpamKiller.Blacklist;
 using SpamKiller.Bot;
 using SpamKiller.Data;
+using SpamKiller.Reporting;
 using System;
 using System.Configuration;
 using System.Linq;
@@ -14,9 +16,11 @@ using System.Threading.Tasks;
 
 namespace SpamKiller
 {
+    /// <summary> The main bot class, handling the entire bot's presence in Discord. </summary>
     public class MainBot
     {
         #region Constants
+        /// <summary> How long (in minutes) it takes for the bot's status to tick. </summary>
         private const float statusUpdateInvervalMinutes = 1f;
         #endregion
 
@@ -28,31 +32,43 @@ namespace SpamKiller
         private IServiceProvider serviceProvider;
 
         /// <summary> The timer used to switch the status. Note that even though this is never referred to, it is needed as a field to prevent it going out of scope. </summary>
+#pragma warning disable IDE0052 // Remove unread private members
         private readonly Timer statusTimer;
+#pragma warning restore IDE0052 // Remove unread private members
 
+        /// <summary> The value used to determine what status to show next. </summary>
         private int statusTicker = 0;
         #endregion
 
         #region Properties
         /// <summary> The service used to handle commands. </summary>
-        public CommandService CommandService { get; } = new CommandService();
+        public CommandService CommandService { get; }
 
-        /// <summary> The service that handles routing slash commands. </summary>
+        /// <summary> The service that handles routing slash commands and other interactions. </summary>
         public InteractionService InteractionService { get; }
 
         /// <summary> The connection to the Discord servers. </summary>
         public DiscordSocketClient Client { get; }
 
+        /// <summary> The connection to the local database. </summary>
         public DataContext Context { get; }
 
+        /// <summary> The manager that handles the instances of this bot on every server. </summary>
         public ServerBotManager ServerBotManager { get; }
 
+        /// <summary> The manager that handles scam reporters. </summary>
+        public ReporterManager ReporterManager { get; }
+
+        /// <summary> The manager that handles banning and unbanning users. </summary>
         public BlacklistManager BlacklistManager { get; }
         #endregion
 
         #region Constructors
         public MainBot(string token)
         {
+            // Don't even start the bot if the token is invalid.
+            if (string.IsNullOrWhiteSpace(token)) throw new ArgumentException($"'{nameof(token)}' cannot be null or whitespace.", nameof(token));
+
             // Set the token.
             this.token = token;
 
@@ -61,17 +77,19 @@ namespace SpamKiller
             Context = new DataContext();
 
             // Create any services that rely on the client.
+            CommandService = new CommandService();
             InteractionService = new InteractionService(Client);
 
             // Create the data managers.
             ServerBotManager = new ServerBotManager(Context, Client, InteractionService);
-            BlacklistManager = new BlacklistManager(ServerBotManager, Context);
+            ReporterManager = new ReporterManager(Context);
+            BlacklistManager = new BlacklistManager(ServerBotManager, ReporterManager, Context);
 
             // Bind the log function.
             Client.Log += Log;
 
             // Start the timer for the status.
-            statusTimer = new ((state) => updateStatus().Wait(), null, 0, (int)MathF.Round(statusUpdateInvervalMinutes * 60000));
+            statusTimer = new((state) => updateStatus().Wait(), null, 0, (int)MathF.Round(statusUpdateInvervalMinutes * 60000));
 
             // Log the start.
             LogConsole($"DeFi Shield version {ConfigurationManager.AppSettings["version"]} started.");
@@ -79,27 +97,52 @@ namespace SpamKiller
         #endregion
 
         #region Initialisation Functions
-        public async Task LoginAndStartAsync()
+        /// <summary> Initialses commands, logs the bot in, and starts it. </summary>
+        /// <returns> <c>true</c> if the initialisation was a success; otherwise <c>false</c>. </returns>
+        public async Task<bool> LoginAndStartAsync()
         {
             // Initialise the commands.
-            await initialiseCommandsAsync();
+            if (!await initialiseCommandsAsync()) return false;
 
             // Login and start.
-            await LoginAsync();
-            await StartAsync();
+            if (!await LoginAsync()) return false;
+            if (!await StartAsync()) return false;
+
+            // Since everything went okay, return true.
+            return true;
         }
 
-        public async Task LoginAsync() => await Client.LoginAsync(TokenType.Bot, token);
+        /// <summary> Logs the bot in. </summary>
+        /// <returns> <c>true</c> if the login was a success; otherwise <c>false</c>. </returns>
+        public async Task<bool> LoginAsync()
+        {
+            // Try to log in. If it fails, log why and return false; otherwise return true.
+            try { await Client.LoginAsync(TokenType.Bot, token); }
+            catch (Exception e) { await LogConsole(e.ToString()); return false; }
+            return true;
+        }
 
-        public async Task StartAsync() => await Client.StartAsync();
+        /// <summary> Starts the bot. </summary>
+        /// <returns> <c>true</c> if the start was a success; otherwise <c>false</c>. </returns>
+        public async Task<bool> StartAsync()
+        {
+            // Try to start. If it fails, log why and return false; otherwise return true.
+            try { await Client.StartAsync(); }
+            catch (Exception e) { await LogConsole(e.ToString()); return false; }
+            return true;
+        }
 
+        /// <summary> Logs out and stops the bot. </summary>
+        /// <returns> The status of the task. </returns>
         public async Task LogoutAndStopAsync()
         {
             await Client.LogoutAsync();
             await Client.StopAsync();
         }
 
-        private async Task initialiseCommandsAsync()
+        /// <summary> Initialises all modules and commands internally. </summary>
+        /// <returns> <c>true</c> if initialisation was a success; otherwise <c>false</c>. </returns>
+        private async Task<bool> initialiseCommandsAsync()
         {
             // Create the services.
             serviceProvider = new ServiceCollection()
@@ -111,39 +154,70 @@ namespace SpamKiller
                 .BuildServiceProvider();
 
             // Add the commands.
-            await CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), serviceProvider);
-            await InteractionService.AddModulesAsync(Assembly.GetEntryAssembly(), serviceProvider);
+            try
+            {
+                await CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), serviceProvider);
+                await InteractionService.AddModulesAsync(Assembly.GetEntryAssembly(), serviceProvider);
+            }
+            catch (Exception e) { await LogConsole(e.ToString()); return false; }
 
             // Handle receiving messages.
             Client.MessageReceived += handleCommandAsync;
-            Client.SlashCommandExecuted += async (command) => await InteractionService.ExecuteCommandAsync(new InteractionContext(Client, command, command.Channel), serviceProvider);
-            Client.UserCommandExecuted += async (command) => await InteractionService.ExecuteCommandAsync(new InteractionContext(Client, command, command.Channel), serviceProvider);
+
+            // Handle commands and interactions.
+            Client.SlashCommandExecuted += executeInteractionAsync;
+            Client.ButtonExecuted += executeInteractionAsync;
+            Client.MessageCommandExecuted += executeInteractionAsync;
+            Client.SelectMenuExecuted += executeInteractionAsync;
+            Client.UserCommandExecuted += executeInteractionAsync;
+
+            // The commands were initialised successfully, so return true.
+            return true;
         }
         #endregion
 
         #region Status Functions
+        /// <summary> Updates the bot's status in Discord. </summary>
+        /// <returns> The status of the task. </returns>
         private async Task updateStatus()
         {
+            // Handle the value of the ticker so far.
             switch (statusTicker)
             {
+                // Show the number of banned users.
                 case 0:
-                    int count = await Context.BannedUsers.CountAsync();
-                    await Client.SetGameAsync($"Banned {count} users", null, ActivityType.Watching);
+                    int bannedUserCount = await Context.BannedUsers.CountAsync();
+                    await Client.SetGameAsync($"Banned {bannedUserCount} users", null, ActivityType.Watching);
                     break;
+
+                // Show the number of whitelisted servers.
                 case 1:
-                    await Client.SetGameAsync($"Protecting {ServerBotManager.ServerInstancesByServerId.Count} servers", null, ActivityType.Watching);
+                    int whitelistedServerCount = await Context.ServerSettings.CountAsync(x => x.IsWhitelisted);
+                    await Client.SetGameAsync($"Protected by {whitelistedServerCount} servers", null, ActivityType.Watching);
+                    break;
+
+                // Show the number of total servers.
+                case 2:
+                    await Client.SetGameAsync($"Protecting {ServerBotManager.Count} total servers", null, ActivityType.Watching);
                     break;
             }
 
+            // Increment the ticker, and reset it if it's too big.
             statusTicker++;
-            if (statusTicker > 1) statusTicker = 0;
+            if (statusTicker > 2) statusTicker = 0;
         }
         #endregion
 
         #region Log Functions
-        public Task Log(LogMessage message) => LogConsole(message.ToString());
+        /// <summary> Logs the given <paramref name="message"/> in the console. </summary>
+        /// <param name="message"> The message to log. </param>
+        /// <returns> The status of the task. </returns>
+        public static Task Log(LogMessage message) => LogConsole(message.ToString());
 
-        public Task LogConsole(string message)
+        /// <summary> Logs the given <paramref name="message"/> in the console. </summary>
+        /// <param name="message"> The message to log. </param>
+        /// <returns> The status of the task. </returns>
+        public static Task LogConsole(string message)
         {
             Console.WriteLine(message);
             return Task.CompletedTask;
@@ -151,6 +225,9 @@ namespace SpamKiller
         #endregion
 
         #region Command Functions
+        /// <summary> Handles receiving standard commands. </summary>
+        /// <param name="message"> The sent message. </param>
+        /// <returns> The status of the task. </returns>
         private async Task handleCommandAsync(SocketMessage message)
         {
             // Ensure it's a user message.
@@ -171,10 +248,11 @@ namespace SpamKiller
             }
         }
 
-        private async Task handleSlashCommandAsync(SocketSlashCommand command)
-        {
-            ;
-        }
+        /// <summary> Executes the given <paramref name="interaction"/>. </summary>
+        /// <param name="interaction"> The interaction to execute. </param>
+        /// <returns> The status of the task. </returns>
+        private async Task executeInteractionAsync(SocketInteraction interaction)
+            => await InteractionService.ExecuteCommandAsync(new InteractionContext(Client, interaction, interaction.Channel), serviceProvider);
         #endregion
     }
 }

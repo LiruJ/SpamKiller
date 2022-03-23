@@ -1,16 +1,18 @@
 ﻿using System;
 
-namespace SpamKiller.Data
+namespace SpamKiller.Reporting
 {
+    /// <summary> Represents a user who is capable of banning and unbanning users. </summary>
     public class ScamReporter
     {
         #region Properties
+        /// <summary> The reporter's primary key. </summary>
         public ulong Id { get; set; }
 
-        /// <summary> The id of the reporter. </summary>
+        /// <summary> The Discord id of the reporter. </summary>
         public ulong UserId { get; set; }
 
-        /// <summary> The id of the server. </summary>
+        /// <summary> The Discord id of the server. </summary>
         public ulong ServerId { get; set; }
 
         /// <summary> The number of users this reporter has banned. </summary>

@@ -1,12 +1,12 @@
 ﻿using Discord;
 using Discord.Interactions;
-using Discord.WebSocket;
 using SpamKiller.Bot;
 using SpamKiller.Data;
 using System.Threading.Tasks;
 
 namespace SpamKiller.Modules
 {
+    /// <summary> Allows easy checking of server and user info. </summary>
     public class InteractionBlacklistBase : InteractionModuleBase
     {
         #region Dependencies
@@ -14,45 +14,65 @@ namespace SpamKiller.Modules
         #endregion
 
         #region Constructors
-        public InteractionBlacklistBase(ServerBotManager botManager)
-        {
-            this.botManager = botManager;
-        }
+        public InteractionBlacklistBase(ServerBotManager botManager) => this.botManager = botManager;
         #endregion
 
         #region Check Functions
-        protected async Task<ServerBot> checkIfServerRegistered()
+        /// <summary> 
+        /// Gets the server instance for the current server and checks to see if it exists. 
+        /// Modifies the original response if the server is not registered.
+        /// </summary>
+        /// <returns> The server instance if the server is registered; otherwise <c>null</c>. </returns>
+        protected async Task<ServerBot> CheckIfServerRegisteredAsync()
         {
-            // Get the server instance.
+            // Get the server instance. If it does not exist then modify the original response.
             if (!botManager.ServerInstancesByServerId.TryGetValue(Context.Guild.Id, out ServerBot serverBot))
-            {
                 await ModifyOriginalResponseAsync((messageProperties) => messageProperties.Content = "This server has not been registered.");
-                return null;
-            }
 
+            // Return the instance. This will be null if it does not exist.
             return serverBot;
         }
 
-        protected async Task<bool> checkIfWhitelisted() => await checkIfWhitelisted(await checkIfServerRegistered());
+        /// <summary> 
+        /// Gets the server instance for the current server via <see cref="CheckIfServerRegisteredAsync"/> and checks to see if it is whitelisted. 
+        /// Modifies the original response if the server is not whitelisted or registered.
+        /// </summary>
+        /// <returns> <c>true</c> if the server is registered and whitelisted; otherwise <c>false</c>. </returns>
+        protected async Task<bool> CheckIfWhitelistedAsync() => await CheckIfWhitelistedAsync(await CheckIfServerRegisteredAsync());
 
-        protected async Task<bool> checkIfWhitelisted(ServerBot serverBot)
+        /// <summary> 
+        /// Checks to see if the given <paramref name="serverBot"/> is registered.
+        /// Modifies the original response if the server is not whitelisted or registered.
+        /// </summary>
+        /// <param name="serverBot"> The server instance to check. </param>
+        /// <returns> <c>true</c> if the server is registered and whitelisted; otherwise <c>false</c>. </returns>
+        protected async Task<bool> CheckIfWhitelistedAsync(ServerBot serverBot)
         {
+            // If the server instance is null, return false.
             if (serverBot == null) return false;
 
             // Ensure the server is whitelisted.
             if (!serverBot.Settings.IsWhitelisted)
             {
+                // Get Liru and tell the user to contact her about being whitelisted.
                 IUser liru = await Context.Client.GetUserAsync(Constants.LiruId);
-                await ModifyOriginalResponseAsync((messageProperties) => messageProperties.Content = $"This server has not been whitelisted to globally ban users, please contact {liru.Username}#{liru.Discriminator} if you believe this to be a mistake.");
-                return false;
+                await ModifyOriginalResponseAsync((messageProperties) 
+                    => messageProperties.Content = $"This server has not been whitelisted to globally ban users, please contact {liru.Username}#{liru.Discriminator} if you believe this to be a mistake.");
             }
 
-            return true;
+            // Return the server's whitelist status.
+            return serverBot.Settings.IsWhitelisted;
         }
         #endregion
 
         #region User Functions
-        protected async Task<IUser> getUserFromString(string userIdOrName)
+        /// <summary> 
+        /// Gets the user with the given <paramref name="userIdOrName"/>.
+        /// Modifies the original response if the user could not be found.
+        /// </summary>
+        /// <param name="userIdOrName"> The Discord id or username#tag. </param>
+        /// <returns> The found user, or <c>null</c> if none exists. </returns>
+        protected async Task<IUser> GetUserFromStringAsync(string userIdOrName)
         {
             // Trim the string.
             userIdOrName = userIdOrName.Trim();
@@ -66,15 +86,14 @@ namespace SpamKiller.Modules
                 string discriminator = userIdOrName[(hashPosition + 1)..];
 
                 // Get the user.
-                IUser spammer = await Context.Client.GetUserAsync(username, discriminator);
-                
-                // Ensure the user exists.☺
-                if (spammer == null)
-                {
+                IUser user = await Context.Client.GetUserAsync(username, discriminator);
+
+                // If the user does not exist, modify the original response to say that.
+                if (user == null)
                     await ModifyOriginalResponseAsync((messageProperties) => messageProperties.Content = "User with that username/tag does not exist.\nIt is also possible that the name has invisible garbage letters that prevent them from being found, try their id instead.");
-                    return null;
-                }
-                else return spammer;
+
+                // Return the user.
+                return user;
             }
             // Otherwise; use it as an id.
             else
@@ -87,15 +106,14 @@ namespace SpamKiller.Modules
                 }
 
                 // Get the user by their ID.
-                IUser spammer = await Context.Client.GetUserAsync(spammerIdLong);
+                IUser user = await Context.Client.GetUserAsync(spammerIdLong);
 
-                // Ensure the user exists.
-                if (spammer == null)
-                {
+                // If the user does not exist, modify the original response to say that.
+                if (user == null)
                     await ModifyOriginalResponseAsync((messageProperties) => messageProperties.Content = "User with that id does not exist.");
-                    return null;
-                }
-                else return spammer;
+                
+                // Return the user.
+                return user;
             }
         }
         #endregion

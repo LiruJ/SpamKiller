@@ -1,8 +1,10 @@
 ﻿namespace SpamKiller.Settings
 {
+    /// <summary> Represents the settings for a single Discord server. </summary>
     public class ServerSettings
     {
         #region Properties
+        /// <summary> The primary key of the settings. </summary>
         public ulong Id { get; set; }
 
         /// <summary> The Discord id of the server. </summary>

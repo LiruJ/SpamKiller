@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace SpamKiller.Bot
 {
+    /// <summary> Manages the bot's presence on each server it is part of. </summary>
     public class ServerBotManager
     {
         #region Dependencies
@@ -15,10 +16,15 @@ namespace SpamKiller.Bot
         #endregion
 
         #region Backing Fields
+        /// <inheritdoc cref="ServerBotManager.ServerInstancesByServerId"/>
         private readonly Dictionary<ulong, ServerBot> serverInstancesByServerId = new();
         #endregion
 
         #region Properties
+        /// <summary> The number of total servers the bot is in. </summary>
+        public int Count => serverInstancesByServerId.Count;
+
+        /// <summary> The collection of server instances keyed by Discord server id. </summary>
         public IReadOnlyDictionary<ulong, ServerBot> ServerInstancesByServerId => serverInstancesByServerId;
         #endregion
 
@@ -31,13 +37,16 @@ namespace SpamKiller.Bot
             this.interactionService = interactionService;
 
             // Listen for join/leave events.
-            client.JoinedGuild += onServerJoined;
-            client.GuildAvailable += onServerAvailable;
+            client.JoinedGuild += onServerJoinedAsync;
+            client.GuildAvailable += onServerAvailableAsync;
         }
         #endregion
 
         #region Collection Functions
-        private async Task<ServerBot> getOrCreateServerBot(SocketGuild server)
+        /// <summary> Tries to get the server instance associated with the given <paramref name="server"/> and creates one if none exists. </summary>
+        /// <param name="server"> The Discord server. </param>
+        /// <returns> The found or created <see cref="ServerBot"/>. </returns>
+        private async Task<ServerBot> getOrCreateServerBotAsync(SocketGuild server)
         {
             // Do nothing if the server is already registered.
             if (serverInstancesByServerId.TryGetValue(server.Id, out ServerBot serverBot)) return serverBot;
@@ -46,7 +55,7 @@ namespace SpamKiller.Bot
             await interactionService.RegisterCommandsToGuildAsync(server.Id);
 
             // Create the server bot.
-            serverBot = await ServerBot.Create(context, client, server);
+            serverBot = await ServerBot.CreateAsync(context, client, server);
 
             // Register the bot.
             serverInstancesByServerId.Add(server.Id, serverBot);
@@ -55,9 +64,15 @@ namespace SpamKiller.Bot
             return serverBot;
         }
 
-        private async Task onServerAvailable(SocketGuild server) => await getOrCreateServerBot(server);
+        /// <summary> Is fired when the given <paramref name="server"/> becomes available to the bot. This means that the bot is already in the server. </summary>
+        /// <param name="server"> The server that became available. </param>
+        /// <returns> The status of the task. </returns>
+        private async Task onServerAvailableAsync(SocketGuild server) => await getOrCreateServerBotAsync(server);
 
-        private async Task onServerJoined(SocketGuild server) => await getOrCreateServerBot(server);
+        /// <summary> Is fired when the given <paramref name="server"/> is joined by the bot via an invite or otherwise. </summary>
+        /// <param name="server"> The server that was joined. </param>
+        /// <returns> The status of the task. </returns>
+        private async Task onServerJoinedAsync(SocketGuild server) => await getOrCreateServerBotAsync(server);
         #endregion
     }
 }

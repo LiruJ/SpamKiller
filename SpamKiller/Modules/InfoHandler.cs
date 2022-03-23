@@ -18,8 +18,9 @@ namespace SpamKiller.Modules
 
         #region Commands
         [SlashCommand("bot", "Gets information about the bot.")]
-        public async Task GetInfo()
+        public async Task GetInfoAsync()
         {
+            // Send the info message.
             await RespondAsync($"DeFi Shield version {ConfigurationManager.AppSettings["version"]} by Liru\n" +
                                $"Donations keep the bot running!\n" +
                                $"Eth: {ConfigurationManager.AppSettings["donationsWalletEth"]}\n" +
@@ -28,10 +29,12 @@ namespace SpamKiller.Modules
 
         [SlashCommand("setup", "Gets instructions for setting up the bot, users with admin permissions only.")]
         [RequireUserPermission(GuildPermission.Administrator)]
-        public async Task GetSetupInfo()
+        public async Task GetSetupInfoAsync()
         {
+            // Get Liru.
             IUser liru = await Context.Client.GetUserAsync(Constants.LiruId);
 
+            // Send the help message.
             await RespondAsync($"1. Set a log channel with \"/settings set-log-channel\", this is where all global bans will be logged.\n" +
                                $"2. People with administrator permission can right click on a user, Apps>Register as Reporter.\n" +
                                $"This allows them to globally ban users, so please only give it to trusted members. Even the admins need to do this.\n" +

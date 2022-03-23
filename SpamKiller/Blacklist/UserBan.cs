@@ -1,13 +1,19 @@
-﻿using System;
+﻿using SpamKiller.Reporting;
+using System;
 
-namespace SpamKiller.Data
+namespace SpamKiller.Blacklist
 {
+    /// <summary> Represents the reason for a user being blacklisted. </summary>
     public enum BanReason
     {
+        /// <summary> The user is a spammer (sends invite links in DMs). </summary>
         Spammer,
+
+        /// <summary> The user is a scammer (tries to obtain wallet information or otherwise steal). </summary>
         Scammer
     }
 
+    /// <summary> Represents a ban, including the user who was banned, the ban date/time, and the person who banned. </summary>
     public class UserBan
     {
         #region Properties

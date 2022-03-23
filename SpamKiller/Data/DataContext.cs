@@ -1,12 +1,16 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SpamKiller.Blacklist;
+using SpamKiller.Reporting;
 using SpamKiller.Settings;
 using System.Configuration;
 
 namespace SpamKiller.Data
 {
+    /// <summary> Handles interaction with the local database. </summary>
     public class DataContext : DbContext
     {
         #region Constants
+        /// <summary> The connection string used to connect to the local database. </summary>
         private static readonly string connectionString = ConfigurationManager.ConnectionStrings["main"].ConnectionString;
         #endregion
 
@@ -22,13 +26,6 @@ namespace SpamKiller.Data
 
         /// <summary> The settings for each server the bot is in. </summary>
         public DbSet<ServerSettings> ServerSettings { get; set; }
-        #endregion
-
-        #region Constructors
-        public DataContext()
-        {
-
-        }
         #endregion
 
         #region Initialisation Functions
